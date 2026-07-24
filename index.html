@@ -265,12 +265,12 @@ footer a { color: var(--accent2); text-decoration: none; }
 <script>
 // ===================== ETF配置 =====================
 const etfConfig = {
-  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波' },
-  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波' },
-  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波' },
-  '159307': { name:'博时红利低波100ETF',       market:'0', scale:'69.37',  fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波100' },
-  '515100': { name:'景顺长城红利低波100ETF',   market:'1', scale:'55.25',  fee:'0.60%', divFreq:'不定期', divType:'现金分红', index:'中证红利低波100' },
-  '515450': { name:'南方红利低波50ETF',        market:'1', scale:'180.00', fee:'0.60%', divFreq:'半年左右', divType:'现金分红', index:'标普A股红利低波50' }
+  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波', maxDD:'~10.5%', yield:'~5.8%', estStart:'2018-12', tag:'规模最大' },
+  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波', maxDD:'~11.2%', yield:'~5.5%', estStart:'2019-09', tag:'现金分红' },
+  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波', maxDD:'~12.0%', yield:'~5.6%', estStart:'2023-08', tag:'低费率' },
+  '159307': { name:'博时红利低波100ETF',       market:'0', scale:'69.37',  fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波100', maxDD:'~9.8%', yield:'~6.7%', estStart:'2019-09', tag:'综合最优' },
+  '515100': { name:'景顺长城红利低波100ETF',   market:'1', scale:'55.25',  fee:'0.60%', divFreq:'不定期', divType:'现金分红', index:'中证红利低波100', maxDD:'~10.8%', yield:'~5.2%', estStart:'2019-09', tag:'老牌基金' },
+  '515450': { name:'南方红利低波50ETF',        market:'1', scale:'180.00', fee:'0.60%', divFreq:'半年左右', divType:'现金分红', index:'标普A股红利低波50', maxDD:'~14.1%', yield:'~5.0%', estStart:'2020-09', tag:'标普指数' }
 };
 
 let autoRefresh = true;
@@ -333,22 +333,21 @@ async function fetchKline(code, market, count) {
   }
 }
 
-// 批量获取所有ETF的K线 (并行请求，每批最多3个以避免限流)
+// 批量获取所有ETF的K线 (逐个请求，避免并发超时)
 async function fetchAllKlines() {
   const codes = Object.keys(etfConfig);
   const results = {};
   
-  // 分批请求，每批3个
-  for (let i = 0; i < codes.length; i += 3) {
-    const batch = codes.slice(i, i + 3);
-    const promises = batch.map(async code => {
-      const cfg = etfConfig[code];
-      const klines = await fetchKline(code, cfg.market, 260); // 取约1年数据
-      return { code, klines };
-    });
-    const batchResults = await Promise.all(promises);
-    for (const r of batchResults) {
-      results[r.code] = r.klines;
+  for (const code of codes) {
+    const cfg = etfConfig[code];
+    try {
+      const klines = await fetchKline(code, cfg.market, 250);
+      results[code] = klines;
+      if (klines.length > 0) console.log(`K线 OK ${code}: ${klines.length}条`);
+      else console.warn(`K线为空 ${code}`);
+    } catch (e) {
+      console.warn(`K线获取失败 ${code}:`, e.message);
+      results[code] = [];
     }
   }
   return results;
@@ -471,7 +470,7 @@ function updateDashboard(realtime, klinesMap) {
     card.innerHTML = `
       <div class="card-header">
         <div>
-          <div class="card-title">${config.name}</div>
+          <div class="card-title">${config.name} <span style="font-size:0.65rem;color:var(--accent2);background:var(--bg);padding:1px 6px;border-radius:4px;margin-left:4px">${config.tag}</span></div>
           <span class="card-code">${code}</span>
         </div>
       </div>
@@ -518,8 +517,21 @@ function updateDashboard(realtime, klinesMap) {
           <div class="metric-value">${config.scale}亿</div>
         </div>
       </div>
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-label">最大回撤</div>
+          <div class="metric-value" style="color:var(--red)">${config.maxDD}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">股息率</div>
+          <div class="metric-value" style="color:var(--green)">${config.yield}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">成立时间</div>
+          <div class="metric-value">${config.estStart}</div>
+        </div>
+      </div>
       <div class="dividend-info">
-        <div class="dividend-title">分红信息</div>
         <div class="dividend-row">
           <span class="label">分红方式</span><span class="value">${config.divType}</span>
         </div>
