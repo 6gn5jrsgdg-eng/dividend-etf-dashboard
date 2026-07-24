@@ -307,26 +307,24 @@ async function fetchRealtime() {
   return data.data.diff;
 }
 
-// 获取K线数据（单只ETF）
+// 获取K线数据（单只ETF）- 使用腾讯API，浏览器CORS友好
 async function fetchKline(code, market, count) {
-  const secid = `${market}.${code}`;
-  const endDate = new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=0&end=${endDate}&lmt=${count}`;
+  const tcode = (market === '0' ? 'sz' : 'sh') + code;
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tcode},day,,,${count},qfq`;
   try {
-    const data = await fetchWithRetry(url, 1, 600);
-    if (!data || !data.data || !data.data.klines) return [];
-    return data.data.klines.map(line => {
-      const parts = line.split(',');
-      return {
-        date: parts[0],
-        open: parseFloat(parts[1]),
-        close: parseFloat(parts[2]),
-        high: parseFloat(parts[3]),
-        low: parseFloat(parts[4]),
-        volume: parseFloat(parts[5]),
-        amount: parseFloat(parts[6])
-      };
-    });
+    const data = await fetchWithRetry(url, 1, 600, 10000);
+    if (!data || !data.data || !data.data[tcode]) return [];
+    const arr = data.data[tcode].qfqday || data.data[tcode].day;
+    if (!arr || arr.length === 0) return [];
+    return arr.map(item => ({
+      date: item[0].replace(/-/g, ''),
+      open: parseFloat(item[1]),
+      close: parseFloat(item[2]),
+      high: parseFloat(item[3]),
+      low: parseFloat(item[4]),
+      volume: parseFloat(item[5]),
+      amount: 0
+    }));
   } catch (e) {
     console.warn(`K线获取失败 ${code}:`, e.message);
     return [];
