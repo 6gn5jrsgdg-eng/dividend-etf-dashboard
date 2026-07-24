@@ -366,7 +366,8 @@ function calcHighLow(klines) {
   };
 
   for (const k of klines) {
-    const d = new Date(k.date);
+    const ds = k.date.length === 8 ? k.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : k.date;
+    const d = new Date(ds);
     if (d >= oneMonthAgo) {
       if (k.high > periods.m1.high) periods.m1.high = k.high;
       if (k.low < periods.m1.low) periods.m1.low = k.low;
