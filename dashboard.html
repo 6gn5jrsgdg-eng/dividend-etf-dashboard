@@ -280,7 +280,8 @@ footer a { color: var(--accent2); text-decoration: none; }
 </div>
 
 <footer>
-  <p>数据来自东方财富实时行情API · 更新时间：<span id="updateTime">--</span></p>
+  <p>实时数据来自东方财富行情API · 更新时间：<span id="updateTime">--</span></p>
+  <p style="margin-top:4px;font-size:0.7rem;color:var(--muted)">指数PE/PB为跟踪指数估值（ETF本身无PE/PB），数据来自理杏仁/蛋卷基金，仅供参考</p>
   <p style="margin-top:6px;"><a href="dividend-lowvol-etf-guide.html">查看完整投资指南</a></p>
 </footer>
 
@@ -289,9 +290,9 @@ footer a { color: var(--accent2); text-decoration: none; }
 <script>
 // ===================== ETF配置 =====================
 const etfConfig = {
-  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波', maxDD:'~10.5%', yield:'~5.8%', estStart:'2018-12', tag:'规模最大', indexPE:'8.28', indexPB:'0.85' },
-  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波', maxDD:'~11.2%', yield:'~5.5%', estStart:'2019-09', tag:'现金分红', indexPE:'8.28', indexPB:'0.85' },
-  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波', maxDD:'~12.0%', yield:'~5.6%', estStart:'2023-08', tag:'低费率', indexPE:'8.28', indexPB:'0.85' },
+  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波', maxDD:'~10.5%', yield:'~5.8%', estStart:'2018-12', tag:'规模最大', indexPE:'8.19', indexPB:'0.84' },
+  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波', maxDD:'~11.2%', yield:'~5.5%', estStart:'2019-09', tag:'现金分红', indexPE:'8.19', indexPB:'0.84' },
+  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波', maxDD:'~12.0%', yield:'~5.6%', estStart:'2023-08', tag:'低费率', indexPE:'8.19', indexPB:'0.84' },
   '159307': { name:'博时红利低波100ETF',       market:'0', scale:'69.37',  fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波100', maxDD:'~9.8%', yield:'~6.7%', estStart:'2019-09', tag:'综合最优', indexPE:'8.83', indexPB:'0.88' },
   '515100': { name:'景顺长城红利低波100ETF',   market:'1', scale:'55.25',  fee:'0.60%', divFreq:'不定期', divType:'现金分红', index:'中证红利低波100', maxDD:'~10.8%', yield:'~5.2%', estStart:'2019-09', tag:'老牌基金', indexPE:'8.83', indexPB:'0.88' },
   '515450': { name:'南方红利低波50ETF',        market:'1', scale:'180.00', fee:'0.60%', divFreq:'半年左右', divType:'现金分红', index:'标普A股红利低波50', maxDD:'~14.1%', yield:'~5.0%', estStart:'2020-09', tag:'标普指数', indexPE:'9.69', indexPB:'0.90' }
