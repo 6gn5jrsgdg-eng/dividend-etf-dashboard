@@ -385,6 +385,26 @@ function calcHighLow(klines) {
   return periods;
 }
 
+// 计算移动平均线及偏离度
+function calcMA(klines, price) {
+  if (!klines || klines.length === 0) return { ma120: null, ma250: null, dev120: null, dev250: null };
+  const closes = klines.map(k => k.close);
+  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const fmt = (n) => n !== null ? n.toFixed(3) : '--';
+  const dev = (ma) => ma ? ((price - ma) / ma * 100).toFixed(2) + '%' : '--';
+
+  let ma120 = null, ma250 = null;
+  if (closes.length >= 120) ma120 = avg(closes.slice(-120));
+  if (closes.length >= 250) ma250 = avg(closes.slice(-250));
+
+  return {
+    ma120: fmt(ma120),
+    ma250: fmt(ma250),
+    dev120: dev(ma120),
+    dev250: dev(ma250)
+  };
+}
+
 // ===================== 渲染 =====================
 
 function drawSparkline(canvas, klines, direction) {
@@ -463,6 +483,7 @@ function updateDashboard(realtime, klinesMap) {
 
     const klines = klinesMap[code] || [];
     const hl = calcHighLow(klines);
+    const ma = calcMA(klines, price);
 
     // 创建卡片
     const card = document.createElement('div');
@@ -529,6 +550,20 @@ function updateDashboard(realtime, klinesMap) {
         <div class="metric-box">
           <div class="metric-label">成立时间</div>
           <div class="metric-value">${config.estStart}</div>
+        </div>
+      </div>
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-label">MA120</div>
+          <div class="metric-value" style="font-size:0.78rem">${ma.ma120} <span style="color:${price > parseFloat(ma.ma120) ? 'var(--red)' : 'var(--green)'};font-size:0.7rem">${ma.dev120}</span></div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">MA250</div>
+          <div class="metric-value" style="font-size:0.78rem">${ma.ma250} <span style="color:${price > parseFloat(ma.ma250) ? 'var(--red)' : 'var(--green)'};font-size:0.7rem">${ma.dev250}</span></div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">位置</div>
+          <div class="metric-value" style="font-size:0.78rem">${(price > parseFloat(ma.ma120) && price > parseFloat(ma.ma250)) ? '均线上方' : (price < parseFloat(ma.ma120) && price < parseFloat(ma.ma250)) ? '均线下方' : '震荡区间'}</div>
         </div>
       </div>
       <div class="dividend-info">
