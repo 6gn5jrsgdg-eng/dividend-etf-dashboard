@@ -289,12 +289,12 @@ footer a { color: var(--accent2); text-decoration: none; }
 <script>
 // ===================== ETF配置 =====================
 const etfConfig = {
-  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波', maxDD:'~10.5%', yield:'~5.8%', estStart:'2018-12', tag:'规模最大' },
-  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波', maxDD:'~11.2%', yield:'~5.5%', estStart:'2019-09', tag:'现金分红' },
-  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波', maxDD:'~12.0%', yield:'~5.6%', estStart:'2023-08', tag:'低费率' },
-  '159307': { name:'博时红利低波100ETF',       market:'0', scale:'69.37',  fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波100', maxDD:'~9.8%', yield:'~6.7%', estStart:'2019-09', tag:'综合最优' },
-  '515100': { name:'景顺长城红利低波100ETF',   market:'1', scale:'55.25',  fee:'0.60%', divFreq:'不定期', divType:'现金分红', index:'中证红利低波100', maxDD:'~10.8%', yield:'~5.2%', estStart:'2019-09', tag:'老牌基金' },
-  '515450': { name:'南方红利低波50ETF',        market:'1', scale:'180.00', fee:'0.60%', divFreq:'半年左右', divType:'现金分红', index:'标普A股红利低波50', maxDD:'~14.1%', yield:'~5.0%', estStart:'2020-09', tag:'标普指数' }
+  '512890': { name:'华泰柏瑞红利低波ETF',    market:'1', scale:'312.90', fee:'0.60%', divFreq:'从不', divType:'净值增长', index:'中证红利低波', maxDD:'~10.5%', yield:'~5.8%', estStart:'2018-12', tag:'规模最大', indexPE:'8.28', indexPB:'0.85' },
+  '563020': { name:'易方达红利低波ETF',        market:'1', scale:'113.61', fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波', maxDD:'~11.2%', yield:'~5.5%', estStart:'2019-09', tag:'现金分红', indexPE:'8.28', indexPB:'0.85' },
+  '159547': { name:'华夏红利低波ETF',          market:'0', scale:'14.65',  fee:'0.20%', divFreq:'季度评估', divType:'现金分红', index:'中证红利低波', maxDD:'~12.0%', yield:'~5.6%', estStart:'2023-08', tag:'低费率', indexPE:'8.28', indexPB:'0.85' },
+  '159307': { name:'博时红利低波100ETF',       market:'0', scale:'69.37',  fee:'0.20%', divFreq:'季度', divType:'现金分红', index:'中证红利低波100', maxDD:'~9.8%', yield:'~6.7%', estStart:'2019-09', tag:'综合最优', indexPE:'8.83', indexPB:'0.88' },
+  '515100': { name:'景顺长城红利低波100ETF',   market:'1', scale:'55.25',  fee:'0.60%', divFreq:'不定期', divType:'现金分红', index:'中证红利低波100', maxDD:'~10.8%', yield:'~5.2%', estStart:'2019-09', tag:'老牌基金', indexPE:'8.83', indexPB:'0.88' },
+  '515450': { name:'南方红利低波50ETF',        market:'1', scale:'180.00', fee:'0.60%', divFreq:'半年左右', divType:'现金分红', index:'标普A股红利低波50', maxDD:'~14.1%', yield:'~5.0%', estStart:'2020-09', tag:'标普指数', indexPE:'9.69', indexPB:'0.90' }
 };
 
 let autoRefresh = true;
@@ -512,9 +512,10 @@ function updateDashboard(realtime, klinesMap) {
     const prevClose = parseFloat(item.f18);
     const turnover = parseFloat(item.f5);   // 成交量(手)
     const turnoverAmt = parseFloat(item.f6); // 成交额
-    const pe = parseFloat(item.f9);         // 市盈率
-    const pb = parseFloat(item.f10);        // 市净率
     const changeRate = parseFloat(item.f33); // 换手率
+    // ETF本身无PE/PB，使用跟踪指数的估值（变化缓慢，预置在配置中）
+    const indexPE = config.indexPE;
+    const indexPB = config.indexPB;
     const isUp = changePercent > 0;
     const isDown = changePercent < 0;
     const direction = isUp ? 'up' : (isDown ? 'down' : 'flat');
@@ -623,12 +624,12 @@ function updateDashboard(realtime, klinesMap) {
       </div>
       <div class="metrics-row">
         <div class="metric-box">
-          <div class="metric-label">PE(市盈率)</div>
-          <div class="metric-value" style="font-size:0.78rem">${pe > 0 ? pe.toFixed(2) : '--'}</div>
+          <div class="metric-label">指数PE</div>
+          <div class="metric-value" style="font-size:0.78rem">${indexPE || '--'}</div>
         </div>
         <div class="metric-box">
-          <div class="metric-label">PB(市净率)</div>
-          <div class="metric-value" style="font-size:0.78rem">${pb > 0 ? pb.toFixed(2) : '--'}</div>
+          <div class="metric-label">指数PB</div>
+          <div class="metric-value" style="font-size:0.78rem">${indexPB || '--'}</div>
         </div>
         <div class="metric-box">
           <div class="metric-label">成交额</div>
