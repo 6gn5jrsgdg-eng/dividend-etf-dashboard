@@ -273,74 +273,97 @@ const etfConfig = {
 
 let autoRefresh = true;
 let refreshInterval = null;
-let klineCache = {};
+let klineCache = {}; // 缓存K线数据
 
-// ===================== 数据获取 =====================
+// ===================== 带重试的数据获取 =====================
 
+async function fetchWithRetry(url, retries = 2, delayMs = 800) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const resp = await fetch(url, { mode: 'cors', cache: 'no-store' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (err) {
+      lastErr = err;
+      if (i < retries) await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// 获取实时行情
 async function fetchRealtime() {
-  const secids = Object.keys(etfConfig).map(c => etfConfig[c].market + '.' + c).join(',');
-  const url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f13,f14,f2,f3,f4,f18,f20&secids=' + secids + '&_=' + Date.now();
-  const resp = await fetch(url);
-  const data = await resp.json();
-  if (!data.data || !data.data.diff) throw new Error('实时数据获取失败');
+  const secids = Object.keys(etfConfig).map(c => `${etfConfig[c].market}.${c}`).join(',');
+  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f13,f14,f2,f3,f4,f18,f20&secids=${secids}&_=${Date.now()}`;
+  const data = await fetchWithRetry(url, 2, 1000);
+  if (!data || !data.data || !data.data.diff) throw new Error('实时数据格式异常');
   return data.data.diff;
 }
 
+// 获取K线数据（单只ETF）
 async function fetchKline(code, market, count) {
-  const secid = market + '.' + code;
+  const secid = `${market}.${code}`;
   const endDate = new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=' + secid + '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=0&end=' + endDate + '&lmt=' + count;
-  const resp = await fetch(url);
-  const data = await resp.json();
-  if (!data.data || !data.data.klines) return [];
-  return data.data.klines.map(function(line) {
-    var parts = line.split(',');
-    return {
-      date: parts[0],
-      open: parseFloat(parts[1]),
-      close: parseFloat(parts[2]),
-      high: parseFloat(parts[3]),
-      low: parseFloat(parts[4]),
-      volume: parseFloat(parts[5]),
-      amount: parseFloat(parts[6])
-    };
-  });
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=0&end=${endDate}&lmt=${count}`;
+  try {
+    const data = await fetchWithRetry(url, 1, 600);
+    if (!data || !data.data || !data.data.klines) return [];
+    return data.data.klines.map(line => {
+      const parts = line.split(',');
+      return {
+        date: parts[0],
+        open: parseFloat(parts[1]),
+        close: parseFloat(parts[2]),
+        high: parseFloat(parts[3]),
+        low: parseFloat(parts[4]),
+        volume: parseFloat(parts[5]),
+        amount: parseFloat(parts[6])
+      };
+    });
+  } catch (e) {
+    console.warn(`K线获取失败 ${code}:`, e.message);
+    return [];
+  }
 }
 
+// 批量获取所有ETF的K线 (并行请求，每批最多3个以避免限流)
 async function fetchAllKlines() {
-  var codes = Object.keys(etfConfig);
-  var results = {};
-  for (var i = 0; i < codes.length; i += 3) {
-    var batch = codes.slice(i, i + 3);
-    var batchResults = await Promise.all(batch.map(function(code) {
-      var cfg = etfConfig[code];
-      return fetchKline(code, cfg.market, 260).then(function(klines) {
-        return { code: code, klines: klines };
-      });
-    }));
-    for (var j = 0; j < batchResults.length; j++) {
-      results[batchResults[j].code] = batchResults[j].klines;
+  const codes = Object.keys(etfConfig);
+  const results = {};
+  
+  // 分批请求，每批3个
+  for (let i = 0; i < codes.length; i += 3) {
+    const batch = codes.slice(i, i + 3);
+    const promises = batch.map(async code => {
+      const cfg = etfConfig[code];
+      const klines = await fetchKline(code, cfg.market, 260); // 取约1年数据
+      return { code, klines };
+    });
+    const batchResults = await Promise.all(promises);
+    for (const r of batchResults) {
+      results[r.code] = r.klines;
     }
   }
   return results;
 }
 
+// 计算历史高低点
 function calcHighLow(klines) {
   if (!klines || klines.length === 0) return null;
-  var now = new Date();
-  var oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  var sixMonthsAgo = new Date(now.getTime() - 182 * 24 * 60 * 60 * 1000);
-  var oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixMonthsAgo = new Date(now.getTime() - 182 * 24 * 60 * 60 * 1000);
+  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-  var periods = {
+  const periods = {
     m1: { high: -Infinity, low: Infinity },
     m6: { high: -Infinity, low: Infinity },
     y1: { high: -Infinity, low: Infinity }
   };
 
-  for (var i = 0; i < klines.length; i++) {
-    var k = klines[i];
-    var d = new Date(k.date);
+  for (const k of klines) {
+    const d = new Date(k.date);
     if (d >= oneMonthAgo) {
       if (k.high > periods.m1.high) periods.m1.high = k.high;
       if (k.low < periods.m1.low) periods.m1.low = k.low;
@@ -361,32 +384,34 @@ function calcHighLow(klines) {
 
 function drawSparkline(canvas, klines, direction) {
   if (!klines || klines.length < 2) return;
-  var ctx = canvas.getContext('2d');
-  var dpr = window.devicePixelRatio || 1;
-  var rect = canvas.getBoundingClientRect();
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.scale(dpr, dpr);
 
-  var w = rect.width;
-  var h = rect.height;
-  var padding = 2;
+  const w = rect.width;
+  const h = rect.height;
+  const padding = 2;
 
-  var recent = klines.slice(-30);
-  var closes = recent.map(function(k) { return k.close; });
-  var max = Math.max.apply(null, closes);
-  var min = Math.min.apply(null, closes);
-  var range = max - min || 1;
+  // 取最近30个交易日
+  const recent = klines.slice(-30);
+  const closes = recent.map(k => k.close);
+  const max = Math.max(...closes);
+  const min = Math.min(...closes);
+  const range = max - min || 1;
 
-  var lineColor = direction === 'up' ? '#ef4444' : direction === 'down' ? '#10b981' : '#94a3b8';
-  var fillColor = direction === 'up' ? 'rgba(239,68,68,0.15)' : direction === 'down' ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.1)';
+  const lineColor = direction === 'up' ? '#ef4444' : direction === 'down' ? '#10b981' : '#94a3b8';
+  const fillColor = direction === 'up' ? 'rgba(239,68,68,0.15)' : direction === 'down' ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.1)';
 
   ctx.clearRect(0, 0, w, h);
 
+  // 填充区域
   ctx.beginPath();
-  for (var i = 0; i < recent.length; i++) {
-    var x = padding + (i / (recent.length - 1)) * (w - padding * 2);
-    var y = padding + ((max - recent[i].close) / range) * (h - padding * 2);
+  for (let i = 0; i < recent.length; i++) {
+    const x = padding + (i / (recent.length - 1)) * (w - padding * 2);
+    const y = padding + ((max - recent[i].close) / range) * (h - padding * 2);
     if (i === 0) ctx.moveTo(x, h - padding);
     ctx.lineTo(x, y);
   }
@@ -395,13 +420,14 @@ function drawSparkline(canvas, klines, direction) {
   ctx.fillStyle = fillColor;
   ctx.fill();
 
+  // 折线
   ctx.beginPath();
   ctx.strokeStyle = lineColor;
   ctx.lineWidth = 1.5;
   ctx.lineJoin = 'round';
-  for (var i = 0; i < recent.length; i++) {
-    var x = padding + (i / (recent.length - 1)) * (w - padding * 2);
-    var y = padding + ((max - recent[i].close) / range) * (h - padding * 2);
+  for (let i = 0; i < recent.length; i++) {
+    const x = padding + (i / (recent.length - 1)) * (w - padding * 2);
+    const y = padding + ((max - recent[i].close) / range) * (h - padding * 2);
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -409,157 +435,189 @@ function drawSparkline(canvas, klines, direction) {
 }
 
 function updateDashboard(realtime, klinesMap) {
-  var cardsContainer = document.getElementById('cardsContainer');
-  var tableBody = document.getElementById('tableBody');
+  const cardsContainer = document.getElementById('cardsContainer');
+  const tableBody = document.getElementById('tableBody');
   cardsContainer.innerHTML = '';
   tableBody.innerHTML = '';
 
-  for (var idx = 0; idx < realtime.length; idx++) {
-    var item = realtime[idx];
-    var code = item.f12;
-    var config = etfConfig[code];
+  for (const item of realtime) {
+    const code = item.f12;
+    const config = etfConfig[code];
     if (!config) continue;
 
-    var price = parseFloat(item.f2);
-    var changePercent = parseFloat(item.f3);
-    var changeAmount = parseFloat(item.f4);
-    var prevClose = parseFloat(item.f18);
-    var isUp = changePercent > 0;
-    var isDown = changePercent < 0;
-    var direction = isUp ? 'up' : (isDown ? 'down' : 'flat');
-    var sign = isUp ? '+' : '';
+    const price = parseFloat(item.f2);
+    const changePercent = parseFloat(item.f3);
+    const changeAmount = parseFloat(item.f4);
+    const prevClose = parseFloat(item.f18);
+    const isUp = changePercent > 0;
+    const isDown = changePercent < 0;
+    const direction = isUp ? 'up' : (isDown ? 'down' : 'flat');
+    const sign = isUp ? '+' : '';
 
-    var klines = klinesMap[code] || [];
-    var hl = calcHighLow(klines);
+    const klines = klinesMap[code] || [];
+    const hl = calcHighLow(klines);
 
-    var card = document.createElement('div');
+    // 创建卡片
+    const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML =
-      '<div class="card-header">' +
-        '<div>' +
-          '<div class="card-title">' + config.name + '</div>' +
-          '<span class="card-code">' + code + '</span>' +
-        '</div>' +
-      '</div>' +
-      '<div class="price-section">' +
-        '<span class="price ' + direction + '">' + price.toFixed(3) + '</span>' +
-        '<span class="change ' + direction + '">' + sign + changePercent.toFixed(2) + '%</span>' +
-      '</div>' +
-      '<div class="sparkline-wrap">' +
-        '<canvas id="chart-' + code + '" style="width:100%;height:50px"></canvas>' +
-      '</div>' +
-      '<div class="hl-section">' +
-        '<div class="hl-box">' +
-          '<div class="hl-label">近1月</div>' +
-          '<div class="hl-high">' + (hl ? hl.m1.high.toFixed(3) : '--') + '</div>' +
-          '<div class="hl-low">' + (hl ? hl.m1.low.toFixed(3) : '--') + '</div>' +
-        '</div>' +
-        '<div class="hl-box">' +
-          '<div class="hl-label">近6月</div>' +
-          '<div class="hl-high">' + (hl ? hl.m6.high.toFixed(3) : '--') + '</div>' +
-          '<div class="hl-low">' + (hl ? hl.m6.low.toFixed(3) : '--') + '</div>' +
-        '</div>' +
-        '<div class="hl-box">' +
-          '<div class="hl-label">近1年</div>' +
-          '<div class="hl-high">' + (hl ? hl.y1.high.toFixed(3) : '--') + '</div>' +
-          '<div class="hl-low">' + (hl ? hl.y1.low.toFixed(3) : '--') + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="metrics-row">' +
-        '<div class="metric-box"><div class="metric-label">涨跌额</div><div class="metric-value ' + direction + '">' + sign + changeAmount.toFixed(3) + '</div></div>' +
-        '<div class="metric-box"><div class="metric-label">昨收</div><div class="metric-value">' + prevClose.toFixed(3) + '</div></div>' +
-        '<div class="metric-box"><div class="metric-label">规模</div><div class="metric-value">' + config.scale + '亿</div></div>' +
-      '</div>' +
-      '<div class="dividend-info">' +
-        '<div class="dividend-title">分红信息</div>' +
-        '<div class="dividend-row"><span class="label">分红方式</span><span class="value">' + config.divType + '</span></div>' +
-        '<div class="dividend-row"><span class="label">分红频率</span><span class="value">' + config.divFreq + '</span></div>' +
-        '<div class="dividend-row"><span class="label">年费率</span><span class="value">' + config.fee + '</span></div>' +
-        '<div class="dividend-row"><span class="label">跟踪指数</span><span class="value">' + config.index + '</span></div>' +
-      '</div>';
+    card.innerHTML = `
+      <div class="card-header">
+        <div>
+          <div class="card-title">${config.name}</div>
+          <span class="card-code">${code}</span>
+        </div>
+      </div>
+      <div class="price-section">
+        <span class="price ${direction}">${price.toFixed(3)}</span>
+        <span class="change ${direction}">${sign}${changePercent.toFixed(2)}%</span>
+      </div>
+      <div class="sparkline-wrap">
+        <canvas id="chart-${code}" style="width:100%;height:50px"></canvas>
+      </div>
+      <div class="hl-section">
+        <div class="hl-box">
+          <div class="hl-label">近1月</div>
+          <div class="hl-high">${hl ? hl.m1.high.toFixed(3) : '--'}</div>
+          <div class="hl-low">${hl ? hl.m1.low.toFixed(3) : '--'}</div>
+        </div>
+        <div class="hl-box">
+          <div class="hl-label">近6月</div>
+          <div class="hl-high">${hl ? hl.m6.high.toFixed(3) : '--'}</div>
+          <div class="hl-low">${hl ? hl.m6.low.toFixed(3) : '--'}</div>
+        </div>
+        <div class="hl-box">
+          <div class="hl-label">近1年</div>
+          <div class="hl-high">${hl ? hl.y1.high.toFixed(3) : '--'}</div>
+          <div class="hl-low">${hl ? hl.y1.low.toFixed(3) : '--'}</div>
+        </div>
+      </div>
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-label">涨跌额</div>
+          <div class="metric-value ${direction}">${sign}${changeAmount.toFixed(3)}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">昨收</div>
+          <div class="metric-value">${prevClose.toFixed(3)}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">规模</div>
+          <div class="metric-value">${config.scale}亿</div>
+        </div>
+      </div>
+      <div class="dividend-info">
+        <div class="dividend-title">分红信息</div>
+        <div class="dividend-row">
+          <span class="label">分红方式</span><span class="value">${config.divType}</span>
+        </div>
+        <div class="dividend-row">
+          <span class="label">分红频率</span><span class="value">${config.divFreq}</span>
+        </div>
+        <div class="dividend-row">
+          <span class="label">年费率</span><span class="value">${config.fee}</span>
+        </div>
+        <div class="dividend-row">
+          <span class="label">跟踪指数</span><span class="value">${config.index}</span>
+        </div>
+      </div>
+    `;
     cardsContainer.appendChild(card);
 
-    setTimeout((function(c, k, d) {
-      return function() {
-        var canvas = document.getElementById('chart-' + c);
-        if (canvas) drawSparkline(canvas, k, d);
-      };
-    })(code, klines, direction), 50);
+    // 绘制走势图
+    setTimeout(() => {
+      const canvas = document.getElementById(`chart-${code}`);
+      if (canvas) drawSparkline(canvas, klines, direction);
+    }, 50);
 
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td class="code">' + code + '</td>' +
-      '<td>' + config.name + '</td>' +
-      '<td class="price ' + direction + '">' + price.toFixed(3) + '</td>' +
-      '<td class="' + direction + '">' + sign + changeAmount.toFixed(3) + '</td>' +
-      '<td class="' + direction + '">' + sign + changePercent.toFixed(2) + '%</td>' +
-      '<td>' + prevClose.toFixed(3) + '</td>' +
-      '<td class="up">' + (hl ? hl.m1.high.toFixed(3) : '--') + '</td>' +
-      '<td class="down">' + (hl ? hl.m1.low.toFixed(3) : '--') + '</td>' +
-      '<td class="up">' + (hl ? hl.m6.high.toFixed(3) : '--') + '</td>' +
-      '<td class="down">' + (hl ? hl.m6.low.toFixed(3) : '--') + '</td>' +
-      '<td class="up">' + (hl ? hl.y1.high.toFixed(3) : '--') + '</td>' +
-      '<td class="down">' + (hl ? hl.y1.low.toFixed(3) : '--') + '</td>' +
-      '<td>' + config.scale + '</td>' +
-      '<td>' + config.fee + '</td>' +
-      '<td>' + config.divFreq + '</td>';
+    // 创建表格行
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="code">${code}</td>
+      <td>${config.name}</td>
+      <td class="price ${direction}">${price.toFixed(3)}</td>
+      <td class="${direction}">${sign}${changeAmount.toFixed(3)}</td>
+      <td class="${direction}">${sign}${changePercent.toFixed(2)}%</td>
+      <td>${prevClose.toFixed(3)}</td>
+      <td class="up">${hl ? hl.m1.high.toFixed(3) : '--'}</td>
+      <td class="down">${hl ? hl.m1.low.toFixed(3) : '--'}</td>
+      <td class="up">${hl ? hl.m6.high.toFixed(3) : '--'}</td>
+      <td class="down">${hl ? hl.m6.low.toFixed(3) : '--'}</td>
+      <td class="up">${hl ? hl.y1.high.toFixed(3) : '--'}</td>
+      <td class="down">${hl ? hl.y1.low.toFixed(3) : '--'}</td>
+      <td>${config.scale}</td>
+      <td>${config.fee}</td>
+      <td>${config.divFreq}</td>
+    `;
     tableBody.appendChild(tr);
-  }
+  });
 }
 
 // ===================== 主流程 =====================
 
 async function fetchAll() {
-  var statusEl = document.getElementById('status');
+  const statusEl = document.getElementById('status');
   statusEl.innerHTML = '<span class="refresh-dot"></span>更新中...';
   statusEl.className = 'status';
 
   try {
-    var results = await Promise.all([fetchRealtime(), fetchAllKlines()]);
-    var realtime = results[0];
-    var klinesMap = results[1];
+    const [realtime, klinesMap] = await Promise.all([
+      fetchRealtime(),
+      fetchAllKlines()
+    ]);
+
     updateDashboard(realtime, klinesMap);
     document.getElementById('updateTime').textContent = new Date().toLocaleString('zh-CN');
     statusEl.innerHTML = '<span class="refresh-dot"></span>自动刷新中 (30s)';
     statusEl.className = 'status connected';
   } catch (error) {
     console.error('获取数据失败:', error);
-    statusEl.innerHTML = '获取失败，点击"立即刷新"重试';
+    const msg = error.message || '网络错误';
+    statusEl.innerHTML = `获取失败 (${msg})，<a href="javascript:fetchAll()" style="color:#3b82f6;text-decoration:underline;">点击重试</a>`;
     statusEl.className = 'status error';
   }
 }
 
-var klineLastFetch = 0;
+// 自动刷新（仅刷新实时价格，K线数据每5分钟刷新一次）
+let klineLastFetch = 0;
 async function fetchRealtimeOnly() {
-  var statusEl = document.getElementById('status');
+  const statusEl = document.getElementById('status');
   statusEl.innerHTML = '<span class="refresh-dot"></span>更新中...';
   statusEl.className = 'status';
 
   try {
-    var now = Date.now();
-    var klinesMap = klineCache;
+    const now = Date.now();
+    let klinesMap = klineCache;
+
+    // 每5分钟刷新K线数据
     if (now - klineLastFetch > 300000 || Object.keys(klinesMap).length === 0) {
       klinesMap = await fetchAllKlines();
       klineCache = klinesMap;
       klineLastFetch = now;
     }
-    var realtime = await fetchRealtime();
+
+    const realtime = await fetchRealtime();
     updateDashboard(realtime, klinesMap);
     document.getElementById('updateTime').textContent = new Date().toLocaleString('zh-CN');
     statusEl.innerHTML = '<span class="refresh-dot"></span>自动刷新中 (30s)';
     statusEl.className = 'status connected';
   } catch (error) {
     console.error('获取数据失败:', error);
-    statusEl.innerHTML = '获取失败，点击"立即刷新"重试';
+    const msg = error.message || '网络错误';
+    statusEl.innerHTML = `获取失败 (${msg})，<a href="javascript:fetchAll()" style="color:#3b82f6;text-decoration:underline;">点击重试</a>`;
     statusEl.className = 'status error';
   }
 }
 
 function toggleAutoRefresh() {
   autoRefresh = !autoRefresh;
-  var btn = document.getElementById('autoBtn');
-  if (autoRefresh) { btn.textContent = '暂停刷新'; startAutoRefresh(); }
-  else { btn.textContent = '继续刷新'; stopAutoRefresh(); }
+  const btn = document.getElementById('autoBtn');
+  if (autoRefresh) {
+    btn.textContent = '暂停刷新';
+    startAutoRefresh();
+  } else {
+    btn.textContent = '继续刷新';
+    stopAutoRefresh();
+  }
 }
 
 function startAutoRefresh() {
@@ -571,11 +629,16 @@ function stopAutoRefresh() {
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
 }
 
-fetchAll().then(function() { startAutoRefresh(); });
+// 初始化
+fetchAll().then(() => startAutoRefresh());
 
-document.addEventListener('visibilitychange', function() {
-  if (document.hidden) { stopAutoRefresh(); }
-  else if (autoRefresh) { fetchRealtimeOnly(); startAutoRefresh(); }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopAutoRefresh();
+  } else if (autoRefresh) {
+    fetchRealtimeOnly();
+    startAutoRefresh();
+  }
 });
 </script>
 
