@@ -279,11 +279,18 @@ let klineCache = {}; // 缓存K线数据
 
 // ===================== 带重试的数据获取 =====================
 
-async function fetchWithRetry(url, retries = 2, delayMs = 800) {
+function fetchWithTimeout(url, timeoutMs = 8000) {
+  return Promise.race([
+    fetch(url, { mode: 'cors', cache: 'no-store' }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时')), timeoutMs))
+  ]);
+}
+
+async function fetchWithRetry(url, retries = 2, delayMs = 800, timeoutMs = 8000) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
-      const resp = await fetch(url, { mode: 'cors', cache: 'no-store' });
+      const resp = await fetchWithTimeout(url, timeoutMs);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return await resp.json();
     } catch (err) {
@@ -583,6 +590,15 @@ async function fetchAll() {
   } catch (error) {
     console.error('获取数据失败:', error);
     const msg = error.message || '网络错误';
+    const cardsEl = document.getElementById('cardsContainer');
+    if (cardsEl.children.length <= 1 && cardsEl.querySelector('.loading-spinner')) {
+      cardsEl.innerHTML = `
+        <div class="loading-overlay" style="grid-column:1/-1">
+          <p style="color:#ef4444;font-weight:600;margin-bottom:8px">数据加载失败 (${msg})</p>
+          <p style="font-size:0.85rem;color:#94a3b8;margin-bottom:12px">可能是网络原因导致无法连接到行情服务器，<br>建议尝试 <strong style="color:#f59e0b">开启 VPN</strong> 后刷新页面。</p>
+          <button class="btn btn-primary" onclick="fetchAll()">重新加载</button>
+        </div>`;
+    }
     statusEl.innerHTML = `获取失败 (${msg})，<a href="javascript:fetchAll()" style="color:#3b82f6;text-decoration:underline;">点击重试</a>`;
     statusEl.className = 'status error';
   }
@@ -614,6 +630,15 @@ async function fetchRealtimeOnly() {
   } catch (error) {
     console.error('获取数据失败:', error);
     const msg = error.message || '网络错误';
+    const cardsEl = document.getElementById('cardsContainer');
+    if (cardsEl.children.length <= 1 && cardsEl.querySelector('.loading-spinner')) {
+      cardsEl.innerHTML = `
+        <div class="loading-overlay" style="grid-column:1/-1">
+          <p style="color:#ef4444;font-weight:600;margin-bottom:8px">数据加载失败 (${msg})</p>
+          <p style="font-size:0.85rem;color:#94a3b8;margin-bottom:12px">可能是网络原因导致无法连接到行情服务器，<br>建议尝试 <strong style="color:#f59e0b">开启 VPN</strong> 后刷新页面。</p>
+          <button class="btn btn-primary" onclick="fetchAll()">重新加载</button>
+        </div>`;
+    }
     statusEl.innerHTML = `获取失败 (${msg})，<a href="javascript:fetchAll()" style="color:#3b82f6;text-decoration:underline;">点击重试</a>`;
     statusEl.className = 'status error';
   }
